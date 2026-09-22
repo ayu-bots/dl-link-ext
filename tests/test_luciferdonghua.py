@@ -74,7 +74,7 @@ def test_lucifer_api(monkeypatch):
     monkeypatch.setattr(main, 'fetch', fetch)
     with TestClient(app) as client:
         names = [s['name'] for s in client.get('/api/sources').json()['sources']]
-        assert names == ['animexin', 'luciferdonghua']
+        assert names == ['animexin', 'luciferdonghua', 'anime4i']
         response = client.get('/api/extract', params={'url': BASE.rstrip('/')})
         assert response.status_code == 200
         assert response.json()['source'] == 'luciferdonghua'

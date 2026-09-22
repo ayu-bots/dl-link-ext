@@ -119,7 +119,7 @@ async def handle(update_id, message, token):
         command = (message.get('text', '').split() or [''])[0].split('@')[0].lower()
         markup = None
         if command in ('/start', '/help') or not url:
-            texts = ['Send an Animexin or Lucifer Donghua episode URL, /v/N/ server URL, or supported short link. Choose a server button to get its links in all available languages.']
+            texts = ['Send an Animexin, Lucifer Donghua or Anime4i episode URL, /v/N/ server URL, or supported short link. Choose a server button to get its links in all available languages.']
         else:
             try:
                 result = await extract(url)

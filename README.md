@@ -1,6 +1,6 @@
 # Multi-source Embed Extractor
 
-Lightweight FastAPI service and web UI. **Animexin and Lucifer Donghua are supported**; future sources plug into `app/sources/` and its registry.
+Lightweight FastAPI service and web UI. **Animexin, Lucifer Donghua and Anime4i are supported**; future sources plug into `app/sources/` and its registry.
 
 ## Features
 
@@ -10,7 +10,7 @@ Lightweight FastAPI service and web UI. **Animexin and Lucifer Donghua are suppo
 - Returns the original label, provider name, language, server page, embed URLs, and extraction status for each recognized choice.
 - English/Indonesian labels are normalized. “All Sub” is reported as **Multilingual**, not an invented list of languages. Unspecified languages remain empty.
 - Partial failures remain visible. Filter by language, copy links, or export JSON.
-- No headless browser, video fetching, or third-party embed crawling.
+- Animexin/Lucifer use static HTTP extraction; Anime4i uses an on-demand browser. No video downloads or third-party embed crawling.
 
 ## Run locally
 
@@ -129,3 +129,21 @@ Both sources share a static server-menu parser, connection pool, bounded concurr
 Screenshot labels are preserved verbatim, including `[4K]` and `[1080p]`. Dailymotion, Rumble, VidHide, Ok.ru and “With Ads” become separate provider buttons. “With Ads” is retained as the site's label, not guessed to be a particular host. `Indo + Eng` and `Eng+Indo` mark the same embed as both English and Indonesian; the extractor does not fabricate two different links or verify subtitle tracks/quality.
 
 Verification: representative fixture tests cover the supplied menu labels, all five numbered pages, combined languages, duplicate menus, Telegram link intake, API dispatch, and source-host isolation. The live page reader showed the expected labels, but direct HTTPS requests from the development sandbox failed during TLS setup, so live embed extraction for Lucifer Donghua must still be checked on Koyeb after redeployment.
+
+## Anime4i: click-to-load browser adapter
+
+Accepts episode URLs such as `https://anime4i.com/martial-master-episode-694-english-subtitles`. Series pages and `/v/N/` URLs are rejected for this source; no numbered URLs are generated.
+
+The adapter opens a fresh browser context for each Dailymotion/Okru server, clicks its server button, clicks an explicit Play/Play video control if necessary, and reads the resulting iframe. It tries the supplied player XPath first, then scoped player/article iframe selectors. Only provider-specific Dailymotion and Ok.ru embed URLs qualify, so a `t.co` ad iframe or a stale iframe from the other provider is never returned. English is recorded when the episode title explicitly says English; the provider name alone does not imply a language.
+
+External network requests, external redirects, images, fonts, video media, service workers and third-party scripts are blocked. Popups are closed. Only HTTPS requests on the Anime4i host allowlist are permitted. This intentionally strict policy may break a player if the site starts requiring external scripts; such a server is reported unavailable rather than opening ad destinations. The extractor reads iframe attributes without loading or playing the third-party video.
+
+### Deployment change for Anime4i
+
+**Use the updated Dockerfile on Koyeb.** It installs Playwright Chromium and its system dependencies during the image build. Existing plain buildpack deployments do not automatically include these dependencies. The Procfile still works for other sources, but running Anime4i with buildpacks requires a custom build environment with `python -m playwright install --with-deps chromium` successfully completed and browser files available to the runtime user.
+
+Keep one worker, one instance, `PORT=8000`, and a TCP check on port 8000. No new Telegram environment variables are required. The browser launches only for Anime4i extraction, one job at a time, and closes afterward. The existing five-minute result cache and 55-second overall deadline still apply. Chromium increases image size, memory use and extraction latency; **free-tier memory suitability has not been measured or guaranteed**. Existing HTTP-only sources remain lightweight. Startup/health checks never launch Chromium.
+
+### Verification status
+
+Tests cover normalization, provider matching, ad rejection, browser network policy, and mocked server → Play → iframe interactions. **Live browser extraction is not yet verified**: this sandbox could not install Chromium's system libraries because its package-mirror connection failed. These are mocked interaction tests, not proof that Anime4i's current controls match the implemented selectors. Test the supplied episode after Docker redeployment; failed selectors return a per-server error instead of an unrelated embed.
