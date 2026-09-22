@@ -155,3 +155,16 @@ The Dockerfile pins `python:3.12-slim-bookworm` (Debian 12), supported by Playwr
 ### Anime4i player detection diagnostics
 
 The player reader also checks lazy iframe attributes and provider-validated iframe URLs outside the original XPath. Explicit image/poster Play controls are supported. Attempted matching iframe requests are captured before the external player request is blocked; popup and top-level navigation requests do not qualify. Failure replies include iframe and blocked-script-host counts, and logs list blocked script hostnames (not URL query strings). This helps distinguish changed DOM controls from missing JavaScript dependencies without disabling ad/redirect protection. These changes are regression-tested with mocks; live Anime4i extraction still requires deployment verification.
+
+## DonghuaFun
+
+Supports `https://donghuafun.com/index.php/vod/play/id/12/sid/1/nid/1.html`-style episode URLs. `id` identifies the series, `sid` the resource, and `nid` the position within that resource's list. **The adapter matches episode labels across resource lists rather than reusing nid.** This matters on the supplied page: EP182 is sid=1/nid=1, but sid=2/nid=1 is EP181.
+
+- Website displays all discovered resource results; Telegram presents resource-name buttons with language/quality labels preserved.
+- Missing episodes remain visible as unavailable; they never silently return another episode.
+- Explicitly VIP-labeled resources are reported as requiring authenticated extraction (unsupported). No login/paywall bypass is attempted.
+- Reads published MacCMS `player_*` JSON assignments with plain, percent-encoded, or base64-encoded URLs; never evaluates arbitrary JavaScript. Falls back to scoped player iframes.
+- JSON player URLs are marked `link_type: player_url` and identified in Telegram/UI as published player URLs, **not necessarily final embed URLs**. They can be media URLs or player-wrapper URLs. The adapter does not follow third-party parser/redirect chains or download media. Scoped iframe results use `link_type: embed`.
+- Unknown tab layouts fall back to `Server N` names, without guessing languages. Only advertised same-series pages are fetched, at most 64 resources, through the existing bounded HTTP pool. No new browser or configuration is required for this source.
+
+**Verification:** the live page reader confirmed the resource labels and differing episode positions, but direct HTTPS fetching failed from the sandbox. Tests use representative MacCMS/Shoutu HTML, not saved live HTML. Real extraction and tab-label parsing need checking after deployment. The Anime4i adapter is unchanged by this source addition.

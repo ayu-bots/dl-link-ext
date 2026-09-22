@@ -44,6 +44,8 @@ def replies(result):
     for server in result['servers']:
         text += server['label'] + '\n'
         text += 'Language: ' + (', '.join(server['languages']) or 'Unspecified') + '\n'
+        if server.get('link_type') == 'player_url' and server['embed_urls']:
+            text += 'Published player URL (not resolved to a final embed):\n'
         text += '\n'.join(server['embed_urls']) or server.get('error', 'Unavailable')
         text += '\n\n'
     if result['warnings']:
@@ -119,7 +121,7 @@ async def handle(update_id, message, token):
         command = (message.get('text', '').split() or [''])[0].split('@')[0].lower()
         markup = None
         if command in ('/start', '/help') or not url:
-            texts = ['Send an Animexin, Lucifer Donghua or Anime4i episode URL, /v/N/ server URL, or supported short link. Choose a server button to get its links in all available languages.']
+            texts = ['Send an Animexin, Lucifer Donghua, Anime4i or DonghuaFun episode URL, /v/N/ server URL, or supported short link. Choose a server button to get its links in all available languages.']
         else:
             try:
                 result = await extract(url)
