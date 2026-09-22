@@ -1,15 +1,17 @@
 """Run locally with secrets in the environment; never commit them."""
 import os
-import re
+import sys
+from pathlib import Path
 import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.bot_config import webhook_secret
 
 
 def main():
     token = os.environ['TELEGRAM_BOT_TOKEN']
-    secret = os.environ['TELEGRAM_WEBHOOK_SECRET']
+    secret = webhook_secret(token)
     base = os.environ['PUBLIC_BASE_URL'].rstrip('/')
-    if not re.fullmatch(r'[A-Za-z0-9_-]{1,256}', secret):
-        raise SystemExit('Webhook secret must be 1–256 letters, digits, underscores or hyphens.')
     if not base.startswith('https://'):
         raise SystemExit('PUBLIC_BASE_URL must use HTTPS.')
     try:

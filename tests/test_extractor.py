@@ -153,7 +153,8 @@ def test_telegram_webhook(monkeypatch):
     bot.seen.clear()
     bot.active.clear()
     monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-only')
-    monkeypatch.setenv('TELEGRAM_WEBHOOK_SECRET', 'test-secret')
+    from app.bot_config import webhook_secret
+    monkeypatch.delenv('TELEGRAM_WEBHOOK_SECRET', raising=False)
     calls = []
     async def handle(uid, message, token):
         calls.append(uid)
@@ -163,5 +164,20 @@ def test_telegram_webhook(monkeypatch):
         body = {'update_id': 123, 'message': {'chat': {'id': 42}, 'text': 'https://animexin.dev/?p=30101'}}
         assert client.post('/telegram/webhook', json=body).status_code == 403
         for _ in range(2):
-            assert client.post('/telegram/webhook', json=body, headers={'X-Telegram-Bot-Api-Secret-Token':'test-secret'}).status_code == 200
+            assert client.post('/telegram/webhook', json=body, headers={'X-Telegram-Bot-Api-Secret-Token':webhook_secret('test-only')}).status_code == 200
         assert calls == [123]
+
+
+def test_webhook_registration_uses_automatic_secret(monkeypatch):
+    from scripts import set_webhook
+    from app.bot_config import webhook_secret
+    monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+    monkeypatch.setenv('PUBLIC_BASE_URL', 'https://example.koyeb.app/')
+    monkeypatch.delenv('TELEGRAM_WEBHOOK_SECRET', raising=False)
+    def post(url, json, timeout):
+        assert json['url'] == 'https://example.koyeb.app/telegram/webhook'
+        assert json['secret_token'] == webhook_secret('test-token')
+        assert webhook_secret('other-token') != json['secret_token']
+        return httpx.Response(200, json={'ok': True})
+    monkeypatch.setattr(set_webhook.httpx, 'post', post)
+    set_webhook.main()

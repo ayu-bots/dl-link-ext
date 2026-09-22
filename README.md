@@ -37,7 +37,7 @@ Each response includes `source`, `url`, `title`, `servers`, `complete`, `warning
 1. Create a Web Service from this repository and select **Dockerfile** deployment.
 2. Select the free instance where available for your account, with **one instance**.
 3. Set `PORT=8000`, expose HTTP port **8000**, and route `/` to it.
-4. Configure the HTTP health check as `/healthz` on port 8000.
+4. Configure a **TCP health check on port 8000**. The app binds to `0.0.0.0`, so Koyeb can connect. Alternatively, use an HTTP check at `/healthz` on port 8000. If you change `PORT`, change the exposed port and health-check port to match.
 5. Deploy. No database, persistent disk, secrets, or additional services are needed.
 
 The Dockerfile runs as a non-root user with **one worker**. Requests share a connection pool and a global four-request semaphore. There are at most eight distinct extraction jobs, 64 server choices per episode, a 2 MB upstream response limit, a 55-second extraction deadline, and a 64-entry / five-minute successful-result cache. Concurrent requests for the same episode share a job. These bounds are intended for small instances; actual latency and memory should be measured on Koyeb. Free-instance sleep/cold starts and upstream latency are outside the extractor's control.
@@ -74,9 +74,9 @@ Short links resolve via the final redirect URL or the page's canonical permalink
 
 1. Create a bot with Telegram's **@BotFather**.
 2. In Koyeb, add `TELEGRAM_BOT_TOKEN` as a **secret environment variable**.
-3. Generate a random webhook secret, e.g. `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Set it as `TELEGRAM_WEBHOOK_SECRET` in Koyeb.
+3. No `TELEGRAM_WEBHOOK_SECRET` variable is needed. Webhook authentication is derived automatically from the bot token.
 4. Deploy the service and check `/healthz`.
-5. On your local machine, set the same `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET` environment variables securely, plus `PUBLIC_BASE_URL=https://YOUR-SERVICE.koyeb.app`. With project requirements installed, run:
+5. On your local machine, set the same `TELEGRAM_BOT_TOKEN` environment variable securely, plus `PUBLIC_BASE_URL=https://YOUR-SERVICE.koyeb.app`. With project requirements installed, run:
 
    ```sh
    python scripts/set_webhook.py
@@ -84,8 +84,10 @@ Short links resolve via the final redirect URL or the page's canonical permalink
 
 6. Send your episode link to the bot in a private chat. For group use, Telegram privacy mode controls which messages the bot receives.
 
-Do not put the token in source code or share it in chat. The webhook is disabled unless both secrets are configured; requests must carry Telegram's matching secret header. There is no separate polling process or extra database. Registration is explicit, not repeated on every service startup.
+Do not put the token in source code or share it in chat. The webhook is disabled unless the bot token is configured; the registration script automatically configures Telegram's matching secret header. No separate webhook-secret variable is read. Re-run registration after upgrading from the manual-secret version or changing the bot token. There is no separate polling process or extra database. Registration is explicit, not repeated on every service startup.
 
 Webhook work runs in-process after acknowledgement, with at most eight active bot updates and a bounded in-memory duplicate-update list. A process restart can lose acknowledged work; resend the link if a deployment interrupts it. This intentionally lightweight setup is not a durable job queue. Telegram delivery errors are logged without token-bearing URLs; delivery is not automatically retried. For heavy traffic, add a durable queue and rate limiting.
 
 **Verification:** automated tests cover short-link redirects/canonical URLs, wrapped links, captions, hidden links, webhook authentication and duplicate updates. A real Telegram end-to-end test still requires your configured bot and deployed service; no bot credentials were used during development.
+
+TCP readiness does not depend on Telegram configuration or access to Animexin. A passing TCP check confirms the server is listening, not that upstream extraction or Telegram delivery succeeds.

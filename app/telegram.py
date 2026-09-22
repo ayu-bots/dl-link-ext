@@ -8,6 +8,8 @@ import secrets
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
+from app.bot_config import webhook_secret
+
 router = APIRouter()
 seen = OrderedDict()
 active = set()
@@ -71,9 +73,9 @@ async def handle(update_id, message, token):
 @router.post('/telegram/webhook', include_in_schema=False)
 async def webhook(request: Request, background: BackgroundTasks):
     token = os.getenv('TELEGRAM_BOT_TOKEN', '')
-    secret = os.getenv('TELEGRAM_WEBHOOK_SECRET', '')
-    if not token or not secret:
+    if not token:
         raise HTTPException(503, 'Telegram bot is not configured')
+    secret = webhook_secret(token)
     if not secrets.compare_digest(request.headers.get('X-Telegram-Bot-Api-Secret-Token', ''), secret):
         raise HTTPException(403, 'Invalid webhook secret')
     body = bytearray()
