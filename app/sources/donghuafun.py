@@ -17,7 +17,7 @@ def normalize(url):
     p = urlsplit(url.strip())
     if (p.scheme != 'https' or p.hostname not in HOSTS or p.username or p.password
             or p.port not in (None, 443) or not PATH.fullmatch(p.path)):
-        raise ValueError('Use a DonghuaFun episode URL containing /vod/play/id/.../sid/.../nid/....html')
+        raise ValueError('DonghuaFun requires an episode player URL (/vod/play/id/.../sid/.../nid/....html), not a series detail page. Open the episode on the site and copy its URL.')
     return urlunsplit(('https', 'donghuafun.com', p.path, '', ''))
 
 
@@ -83,6 +83,26 @@ def resource_choices(content, url):
     return f'{title} — {current_label}', rows, len(ordered_sids) > 64
 
 
+def decode_player(data, base):
+    try:
+        value = data.get('url')
+        if not isinstance(value, str):
+            return None
+        encoding = str(data.get('encrypt', 0))
+        if encoding == '2':
+            value = base64.b64decode(value + '=' * (-len(value) % 4), validate=True).decode('utf-8')
+        elif encoding not in ('0', '1'):
+            return None
+        if encoding in ('1', '2'):
+            value = unquote(value)
+        value = html.unescape(value).strip()
+        if not value.startswith(('http://', 'https://', '//')):
+            return None
+        return web_url(value, base)
+    except (ValueError, UnicodeDecodeError, TypeError):
+        return None
+
+
 def player_links(content, base):
     """Parse published MacCMS player JSON without evaluating JavaScript."""
     soup = BeautifulSoup(content, 'html.parser')
@@ -92,20 +112,7 @@ def player_links(content, base):
         for assignment in re.finditer(r'\b(?:var\s+)?player_[A-Za-z0-9_]+\s*=\s*(?=\{)', text):
             try:
                 data, _ = json.JSONDecoder().raw_decode(text[assignment.end():])
-                value = data.get('url')
-                if not isinstance(value, str):
-                    continue
-                encoding = str(data.get('encrypt', 0))
-                if encoding == '2':
-                    value = base64.b64decode(value, validate=True).decode('utf-8')
-                elif encoding not in ('0', '1'):
-                    continue
-                if encoding in ('1', '2'):
-                    value = unquote(value)
-                value = html.unescape(value)
-                if not value.startswith(('http://', 'https://', '//')):
-                    continue  # IDs requiring an unknown parser are not URLs.
-                link = web_url(value, base)
+                link = decode_player(data, base)
                 if link and link not in links:
                     links.append(link)
             except (ValueError, UnicodeDecodeError, TypeError):
@@ -121,6 +128,7 @@ async def extract(url, fetch):
     url = normalize(url)
     content = await fetch(url)
     title, rows, truncated = resource_choices(content, url)
+    browser_candidates = []
     async def resolve(row):
         if row['status'] != 'pending':
             return
@@ -129,10 +137,20 @@ async def extract(url, fetch):
             links, kind = player_links(page, row['page_url'])
             row.update(embed_urls=links, link_type=kind, status='ok' if links else 'unavailable')
             if not links:
-                row['error'] = 'No public static player URL found; login or a JavaScript parser may be required.'
+                row['error'] = 'No static URL found; browser fallback has not completed.'
+                browser_candidates.append(row)
         except Exception:
             row.update(status='error', error='Could not fetch this resource page.')
     await asyncio.gather(*(resolve(row) for row in rows))
+    if browser_candidates:
+        from .donghuafun_browser import resolve_rows
+        try:
+            # Preserve HTTP successes and missing-episode results on timeout.
+            await asyncio.wait_for(resolve_rows(browser_candidates), timeout=28)
+        except TimeoutError:
+            for row in browser_candidates:
+                if row['status'] != 'ok':
+                    row['error'] = 'Browser extraction time limit reached; no matching public player URL returned.'
     complete = not truncated and all(row['status'] == 'ok' for row in rows)
     warnings = [] if complete else ['Some resources do not list this episode, require login, or could not be extracted.']
     if truncated:

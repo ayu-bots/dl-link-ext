@@ -165,6 +165,16 @@ Supports `https://donghuafun.com/index.php/vod/play/id/12/sid/1/nid/1.html`-styl
 - Explicitly VIP-labeled resources are reported as requiring authenticated extraction (unsupported). No login/paywall bypass is attempted.
 - Reads published MacCMS `player_*` JSON assignments with plain, percent-encoded, or base64-encoded URLs; never evaluates arbitrary JavaScript. Falls back to scoped player iframes.
 - JSON player URLs are marked `link_type: player_url` and identified in Telegram/UI as published player URLs, **not necessarily final embed URLs**. They can be media URLs or player-wrapper URLs. The adapter does not follow third-party parser/redirect chains or download media. Scoped iframe results use `link_type: embed`.
-- Unknown tab layouts fall back to `Server N` names, without guessing languages. Only advertised same-series pages are fetched, at most 64 resources, through the existing bounded HTTP pool. No new browser or configuration is required for this source.
+- Unknown tab layouts fall back to `Server N` names, without guessing languages. Only advertised same-series pages are fetched, at most 64 resources, through the existing bounded HTTP pool. Static URLs use HTTP only. Resources without static URLs now use the bounded Chromium fallback described below; the Docker deployment is required for that fallback.
 
 **Verification:** the live page reader confirmed the resource labels and differing episode positions, but direct HTTPS fetching failed from the sandbox. Tests use representative MacCMS/Shoutu HTML, not saved live HTML. Real extraction and tab-label parsing need checking after deployment. The Anime4i adapter is unchanged by this source addition.
+
+### DonghuaFun dynamic-player fallback
+
+A discovered resource can have the correct episode list but no static embed in its original HTML. Such public resources now fall back to Chromium, reading rendered `player_*` state, `MacPlayer.PlayUrl`, or validated player iframes. This runs only after static extraction fails and only when that resource actually lists the selected episode. Missing episodes and explicitly VIP-labeled resources are never sent to the browser. The Anime4i adapter is unchanged.
+
+The fallback shares Anime4i's single-browser semaphore, launches one process on demand, uses fresh contexts for resources, and closes it afterward. It handles at most four resources within a 28-second batch budget. If it times out, earlier HTTP/browser successes remain in the result instead of being discarded. Missing-episode messages remain unchanged: sid=1/nid=1 and sid=2/nid=1 can be different episodes.
+
+Only source-host HTTPS document/script/XHR requests and narrowly allowlisted jQuery scripts are loaded. External player/advertisement navigation, popups, media and WebSockets are blocked. Known provider iframe URLs can be read without fetching them. Same-site player wrappers are returned only from recognized player containers and remain wrapper embeds rather than promised final media URLs. Unresolved failures log `DonghuaFun resource ...` diagnostics with counts and blocked hostnames (no signed URLs or tokens).
+
+Redeploy the existing Dockerfile; no new environment variables are needed. Mock tests cover browser fallback dispatch, runtime player state, missing-episode exclusion, network policy, and timeout/partial-result preservation. Live rendering still needs deployment verification; these tests do not establish that the source's current scripts successfully run under the strict network policy.

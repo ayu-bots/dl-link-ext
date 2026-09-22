@@ -92,3 +92,81 @@ def test_api_dispatch(monkeypatch):
         assert response.status_code == 200
         assert response.json()['source'] == 'donghuafun'
         assert response.json()['servers'][0]['embed_urls'] == ['https://player.test/embed/current']
+
+
+@pytest.mark.asyncio
+async def test_browser_fallback_only_for_missing_public_urls(monkeypatch):
+    from app.sources import donghuafun_browser as browser
+    calls = []
+    async def fetch(page):
+        if page == url():
+            return fixture().split('<script>')[0]  # dynamic player on 4K Ads
+        return '<div id="player"><iframe src="https://ok.ru/videoembed/123"></iframe></div>'
+    async def resolve(rows):
+        calls.extend(row['page_url'] for row in rows)
+        for row in rows:
+            row.update(embed_urls=['https://rumble.com/embed/rendered'], status='ok', link_type='embed')
+            row.pop('error',None)
+    monkeypatch.setattr(browser,'resolve_rows',resolve)
+    result = await source.extract(url(),fetch)
+    assert calls == [url()]
+    assert result['servers'][0]['embed_urls'] == ['https://rumble.com/embed/rendered']
+    assert result['servers'][1]['status'] == 'unavailable'  # not EP182
+    assert result['servers'][2]['embed_urls'] == ['https://ok.ru/videoembed/123']
+
+
+@pytest.mark.asyncio
+async def test_browser_timeout_preserves_http_success(monkeypatch):
+    from app.sources import donghuafun_browser as browser
+    async def fetch(page):
+        return fixture() if page == url() else '<div>JavaScript player</div>'
+    async def timeout(rows):
+        raise TimeoutError()
+    monkeypatch.setattr(browser,'resolve_rows',timeout)
+    result = await source.extract(url(),fetch)
+    assert result['servers'][0]['status'] == 'ok'
+    assert 'time limit' in result['servers'][2]['error']
+    assert not result['complete']
+
+
+@pytest.mark.parametrize('value,kind,expected', [
+    ('https://donghuafun.com/static/js/player.js','script',True),
+    ('https://donghuafun.com/static/player/dplayer.html','document',True),
+    ('https://code.jquery.com/jquery-3.7.1.min.js','script',True),
+    ('https://code.jquery.com/jquery-3.7.1.min.js','document',False),
+    ('https://t.co/ad','document',False),
+    ('https://ok.ru/videoembed/123','document',False),
+    ('http://127.0.0.1/admin','fetch',False),
+    ('https://donghuafun.com/ep.mp4','media',False),
+])
+def test_rendered_request_policy(value,kind,expected):
+    from app.sources.donghuafun_browser import allowed_request
+    assert allowed_request(value,kind) == expected
+
+
+def test_rendered_embed_validation():
+    from app.sources.donghuafun_browser import player_embed
+    assert player_embed('https://rumble.com/embed/abc',url())
+    assert player_embed('https://t.co/ad',url(),True) is None
+    assert player_embed('https://evil.test/player/abc',url(),True) is None
+    assert player_embed('/static/player/dplayer.html?url=abc',url(),True)
+    assert player_embed('/static/player/buffer.html',url(),True) is None
+    assert player_embed('/static/player/dplayer.html',url(),False) is None
+
+
+@pytest.mark.asyncio
+async def test_runtime_macplayer_url():
+    from app.sources.donghuafun_browser import rendered_links
+    class Page:
+        async def evaluate(self, script):
+            return {'configs':[], 'playUrl':'https://ok.ru/videoembed/123'}
+    assert await rendered_links(Page(),url()) == (['https://ok.ru/videoembed/123'],'player_url')
+
+
+@pytest.mark.asyncio
+async def test_runtime_encoded_config():
+    from app.sources.donghuafun_browser import rendered_links
+    class Page:
+        async def evaluate(self, script):
+            return {'configs':[{'url':quote('https://rumble.com/embed/xyz',safe=''),'encrypt':1}], 'playUrl':''}
+    assert await rendered_links(Page(),url()) == (['https://rumble.com/embed/xyz'],'player_url')
