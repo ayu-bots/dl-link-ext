@@ -5,6 +5,7 @@ import os
 import re
 import secrets
 import time
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -22,12 +23,15 @@ log = logging.getLogger(__name__)
 
 def find_link(message):
     candidates = [e.get('url', '') for e in message.get('entities', []) + message.get('caption_entities', [])]
-    candidates += re.findall(r'https://(?:www\.)?animexin\.dev/[^\s<>\[\]"\u201d]*',
+    candidates += re.findall(r'https://[^\s<>\[\]"\u201d]*',
                              message.get('text', '') or message.get('caption', ''), re.I)
-    from app.sources.animexin import normalize
+    from app.sources import SOURCES
     for candidate in candidates:
         try:
-            return normalize(candidate.rstrip(')+*.,!'))
+            candidate = candidate.rstrip(')+*.,!')
+            source = next((s for s in SOURCES.values() if urlsplit(candidate).hostname in s.HOSTS), None)
+            if source:
+                return source.normalize(candidate)
         except ValueError:
             continue
     return None
@@ -115,7 +119,7 @@ async def handle(update_id, message, token):
         command = (message.get('text', '').split() or [''])[0].split('@')[0].lower()
         markup = None
         if command in ('/start', '/help') or not url:
-            texts = ['Send an Animexin episode URL, /v/N/ server URL, or https://animexin.dev/?p=30101. Choose a server button to get its links in all available languages.']
+            texts = ['Send an Animexin or Lucifer Donghua episode URL, /v/N/ server URL, or supported short link. Choose a server button to get its links in all available languages.']
         else:
             try:
                 result = await extract(url)

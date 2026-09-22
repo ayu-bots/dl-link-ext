@@ -1,6 +1,6 @@
 # Multi-source Embed Extractor
 
-Lightweight FastAPI service and web UI. **Animexin is the first adapter**; future sources plug into `app/sources/` and its registry.
+Lightweight FastAPI service and web UI. **Animexin and Lucifer Donghua are supported**; future sources plug into `app/sources/` and its registry.
 
 ## Features
 
@@ -115,3 +115,17 @@ The bot extracts the episode once and groups its results by provider. Selecting 
 Menus are scoped to their chat, expire after 15 minutes, and are kept in a bounded 64-menu in-memory cache. Restarts or cache eviction invalidate older buttons; the bot asks users to resend the episode URL. In a group, anyone in the same chat can use a menu. No persistent database or additional upstream requests are needed for button clicks.
 
 Redeploy this version to automatically register both `message` and `callback_query` updates with Telegram. No new environment variables are required.
+
+## Lucifer Donghua source
+
+Supports `luciferdonghua.in` (and `www`) episode URLs with or without a trailing slash, including `/v/N/` server URLs. Example:
+
+```text
+https://luciferdonghua.in/shrouding-the-heavens-episode-182-lucifer-donghua
+```
+
+Both sources share a static server-menu parser, connection pool, bounded concurrency and cache. All advertised numbered servers are resolved; duplicate desktop/mobile choices are deduplicated. No browser or new environment variables are needed. Both the website/API and Telegram accept the new source. The website keeps its existing all-server behavior; Telegram shows provider buttons.
+
+Screenshot labels are preserved verbatim, including `[4K]` and `[1080p]`. Dailymotion, Rumble, VidHide, Ok.ru and “With Ads” become separate provider buttons. “With Ads” is retained as the site's label, not guessed to be a particular host. `Indo + Eng` and `Eng+Indo` mark the same embed as both English and Indonesian; the extractor does not fabricate two different links or verify subtitle tracks/quality.
+
+Verification: representative fixture tests cover the supplied menu labels, all five numbered pages, combined languages, duplicate menus, Telegram link intake, API dispatch, and source-host isolation. The live page reader showed the expected labels, but direct HTTPS requests from the development sandbox failed during TLS setup, so live embed extraction for Lucifer Donghua must still be checked on Koyeb after redeployment.

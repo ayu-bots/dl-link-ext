@@ -101,7 +101,7 @@ async def extract(url: str = Query(..., max_length=2048)):
     try:
         source = next((s for s in SOURCES.values() if urlsplit(url.strip()).hostname in s.HOSTS), None)
         if source is None:
-            raise ValueError('Unsupported source. Currently supported: animexin.dev')
+            raise ValueError('Unsupported source. Supported hosts: ' + ', '.join(sorted(set().union(*(s.HOSTS for s in SOURCES.values())))))
         normalized = source.normalize(url)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
