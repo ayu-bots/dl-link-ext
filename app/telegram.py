@@ -44,10 +44,11 @@ def replies(result):
 
 
 async def handle(update_id, message, token):
-    from app.main import extract
+    from app.main import app, extract
     try:
         url = find_link(message)
-        if not url:
+        command = (message.get('text', '').split() or [''])[0].split('@')[0].lower()
+        if command in ('/start', '/help') or not url:
             texts = ['Send an Animexin episode URL, /v/N/ server URL, or https://animexin.dev/?p=30101. I will extract all advertised servers.']
         else:
             try:
@@ -63,8 +64,11 @@ async def handle(update_id, message, token):
                 if not response.is_success or not response.json().get('ok'):
                     # Never log the response URL: it contains the bot token.
                     log.warning('Telegram delivery failed; HTTP status %s', response.status_code)
+                    app.state.telegram_last_delivery = f'failed (HTTP {response.status_code})'
                     break
+                app.state.telegram_last_delivery = 'sent'
     except Exception:
+        app.state.telegram_last_delivery = 'failed during processing or connection to Telegram'
         log.warning('Telegram update processing failed')
     finally:
         active.discard(update_id)
@@ -72,7 +76,7 @@ async def handle(update_id, message, token):
 
 @router.post('/telegram/webhook', include_in_schema=False)
 async def webhook(request: Request, background: BackgroundTasks):
-    token = os.getenv('TELEGRAM_BOT_TOKEN', '')
+    token = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
     if not token:
         raise HTTPException(503, 'Telegram bot is not configured')
     secret = webhook_secret(token)
@@ -102,5 +106,16 @@ async def webhook(request: Request, background: BackgroundTasks):
     while len(seen) > 256:
         seen.popitem(last=False)
     active.add(update_id)
+    request.app.state.telegram_last_update = 'received'
     background.add_task(handle, update_id, message, token)
     return {'ok': True}
+
+
+@router.get('/api/telegram/status')
+async def telegram_status(request: Request):
+    # No token, webhook secret, chat IDs, or message content is exposed.
+    return {
+        **getattr(request.app.state, 'telegram_status', {'status': 'starting'}),
+        'last_update': getattr(request.app.state, 'telegram_last_update', 'none'),
+        'last_delivery': getattr(request.app.state, 'telegram_last_delivery', 'none'),
+    }

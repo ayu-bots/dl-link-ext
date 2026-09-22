@@ -1,6 +1,6 @@
 import asyncio
 from collections import OrderedDict
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 import time
 from urllib.parse import urljoin, urlsplit
@@ -24,7 +24,15 @@ async def lifespan(app):
                                 limits=httpx.Limits(max_connections=4, max_keepalive_connections=4),
                                 headers={'User-Agent': 'Mozilla/5.0 (compatible; LinkExtractor/1.0)'}) as client:
         app.state.client = client
-        yield
+        from app.telegram_setup import setup
+        app.state.telegram_status = {'status': 'starting', 'detail': 'Checking Telegram configuration.'}
+        registration = asyncio.create_task(setup(app))
+        try:
+            yield
+        finally:
+            registration.cancel()
+            with suppress(asyncio.CancelledError):
+                await registration
 
 
 app = FastAPI(title='Multi-source Embed Extractor', lifespan=lifespan)

@@ -181,3 +181,64 @@ def test_webhook_registration_uses_automatic_secret(monkeypatch):
         return httpx.Response(200, json={'ok': True})
     monkeypatch.setattr(set_webhook.httpx, 'post', post)
     set_webhook.main()
+
+
+@pytest.mark.asyncio
+async def test_automatic_webhook_registration(monkeypatch):
+    from types import SimpleNamespace
+    import app.telegram_setup as setup
+    from app.bot_config import webhook_secret
+    monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+    monkeypatch.setenv('PUBLIC_BASE_URL', 'https://example.koyeb.app')
+    calls = []
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, json):
+            calls.append(json)
+            return httpx.Response(200, json={'ok': True})
+    monkeypatch.setattr(setup.httpx, 'AsyncClient', Client)
+    instance = SimpleNamespace(state=SimpleNamespace())
+    await setup.setup(instance)
+    assert instance.state.telegram_status['status'] == 'registered'
+    assert calls[0]['url'] == 'https://example.koyeb.app/telegram/webhook'
+    assert calls[0]['secret_token'] == webhook_secret('test-token')
+    monkeypatch.delenv('PUBLIC_BASE_URL')
+    await setup.setup(instance)
+    assert instance.state.telegram_status['status'] == 'configuration_error'
+
+
+@pytest.mark.parametrize('text', ['/start', '++https://animexin.dev/?p=30101++'])
+def test_webhook_sends_reply(monkeypatch, text):
+    import app.telegram as bot
+    import app.main as main
+    from app.bot_config import webhook_secret
+    bot.seen.clear()
+    bot.active.clear()
+    monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+    monkeypatch.delenv('PUBLIC_BASE_URL', raising=False)
+    sent = []
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, json):
+            sent.append(json)
+            return httpx.Response(200, json={'ok': True})
+    async def extract(url):
+        assert url == 'https://animexin.dev/?p=30101'
+        return {'title': 'Episode', 'warnings': [], 'servers': [
+            {'label': 'English Mega', 'languages':['English'], 'embed_urls':['https://mega.nz/embed/test']}
+        ]}
+    monkeypatch.setattr(bot.httpx, 'AsyncClient', Client)
+    monkeypatch.setattr(main, 'extract', extract)
+    with TestClient(app) as client:
+        r = client.post('/telegram/webhook', json={'update_id': 700, 'message': {'chat': {'id': 42}, 'text': text}},
+                        headers={'X-Telegram-Bot-Api-Secret-Token': webhook_secret('test-token')})
+        assert r.status_code == 200
+        assert sent[0]['chat_id'] == 42
+        assert ('Send an Animexin' if text == '/start' else 'https://mega.nz/embed/test') in sent[0]['text']
+        status = client.get('/api/telegram/status').json()
+        assert status['last_update'] == 'received'
+        assert 'test-token' not in str(status)

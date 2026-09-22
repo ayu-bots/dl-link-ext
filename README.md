@@ -70,24 +70,40 @@ The optional webhook bot accepts normal messages, photo/video captions, and Tele
 
 Short links resolve via the final redirect URL or the page's canonical permalink **before** constructing server URLs. Every advertised server is extracted, not just the pasted server. The bot processes the first supported link in each message, returning original labels, languages and embed links in plain-text messages split below Telegram's length limit.
 
-### Setup
+### Setup (automatic registration)
 
 1. Create a bot with Telegram's **@BotFather**.
-2. In Koyeb, add `TELEGRAM_BOT_TOKEN` as a **secret environment variable**.
-3. No `TELEGRAM_WEBHOOK_SECRET` variable is needed. Webhook authentication is derived automatically from the bot token.
-4. Deploy the service and check `/healthz`.
-5. On your local machine, set the same `TELEGRAM_BOT_TOKEN` environment variable securely, plus `PUBLIC_BASE_URL=https://YOUR-SERVICE.koyeb.app`. With project requirements installed, run:
+2. In Koyeb, set `TELEGRAM_BOT_TOKEN` as a **secret environment variable**.
+3. Set `PUBLIC_BASE_URL` to your service's public origin, e.g. `https://your-service.koyeb.app` (no path).
+4. Deploy/redeploy. The app registers the webhook automatically on startup, including its automatically derived authentication header. No separate `TELEGRAM_WEBHOOK_SECRET` variable or local registration command is needed.
+5. Open `/api/telegram/status`: expect `status: registered`. Then send `/start` or an Animexin link in a **private chat** with your bot. Group privacy mode can prevent delivery of normal group messages.
 
-   ```sh
-   python scripts/set_webhook.py
-   ```
+Webhook registration runs in the background, so it cannot delay the web listener or TCP health checks. Transient registration errors retry every 30 seconds. Missing/invalid configuration is shown in logs and `/api/telegram/status`; correct the environment and redeploy. The status endpoint exposes no token, secret, chat IDs, or messages. It also shows whether an update has arrived and whether the last reply was sent. `registered` means Telegram accepted the configuration, not proof of successful end-to-end delivery.
 
-6. Send your episode link to the bot in a private chat. For group use, Telegram privacy mode controls which messages the bot receives.
-
-Do not put the token in source code or share it in chat. The webhook is disabled unless the bot token is configured; the registration script automatically configures Telegram's matching secret header. No separate webhook-secret variable is read. Re-run registration after upgrading from the manual-secret version or changing the bot token. There is no separate polling process or extra database. Registration is explicit, not repeated on every service startup.
+The optional `scripts/set_webhook.py` remains available for manual registration using the same two environment variables. Do not use this bot token simultaneously with another deployed bot service: webhook registrations will overwrite each other. Do not put tokens in source code or share them in chat.
 
 Webhook work runs in-process after acknowledgement, with at most eight active bot updates and a bounded in-memory duplicate-update list. A process restart can lose acknowledged work; resend the link if a deployment interrupts it. This intentionally lightweight setup is not a durable job queue. Telegram delivery errors are logged without token-bearing URLs; delivery is not automatically retried. For heavy traffic, add a durable queue and rate limiting.
 
 **Verification:** automated tests cover short-link redirects/canonical URLs, wrapped links, captions, hidden links, webhook authentication and duplicate updates. A real Telegram end-to-end test still requires your configured bot and deployed service; no bot credentials were used during development.
 
 TCP readiness does not depend on Telegram configuration or access to Animexin. A passing TCP check confirms the server is listening, not that upstream extraction or Telegram delivery succeeds.
+
+## Koyeb buildpack deployment
+
+Select **Buildpack** with repository root as the working directory. `requirements.txt` provides the dependencies, `.python-version` selects Python 3.12, and `Procfile` declares the web process. If Koyeb asks for an explicit **Run command**, enter:
+
+```sh
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+```
+
+Set `PORT=8000`, expose HTTP port 8000 with route `/`, and choose TCP health checking on port 8000. For a custom port, change both the explicit command and Koyeb's port settings. Use **one instance and one worker** with the current in-memory job/deduplication implementation. Dockerfile deployment is still supported.
+
+### Bot troubleshooting
+
+- Website works, bot silent: check `/api/telegram/status`, not just `/healthz`.
+- `disabled`: missing `TELEGRAM_BOT_TOKEN`.
+- `configuration_error`: set `PUBLIC_BASE_URL` to the public HTTPS origin and redeploy.
+- `registration_error`: review the sanitized error in status/logs; check the token, URL, and Telegram connectivity.
+- `registered`, `last_update: none`: send `/start` in a private chat; ensure the public service is reachable and no other deployment is registering the same bot.
+- Update received but delivery failed: check logs/status, verify the bot is not blocked, and retry the message. Upstream extraction may take up to 55 seconds.
+- Changing tokens or migrating from older releases: redeploy; automatic registration replaces the old webhook and authentication header.
