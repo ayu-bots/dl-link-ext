@@ -17,7 +17,7 @@ def main():
     try:
         response = httpx.post(f'https://api.telegram.org/bot{token}/setWebhook', json={
             'url': base + '/telegram/webhook', 'secret_token': secret,
-            'allowed_updates': ['message'], 'max_connections': 2,
+            'allowed_updates': ['message', 'callback_query'], 'max_connections': 2,
         }, timeout=20)
         if not response.is_success or not response.json().get('ok'):
             raise SystemExit('Webhook registration failed. Check token and public service URL.')

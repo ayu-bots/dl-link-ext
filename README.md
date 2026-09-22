@@ -68,7 +68,7 @@ The optional webhook bot accepts normal messages, photo/video captions, and Tele
 - `https://animexin.dev/episode-slug/v/12/`
 - A link wrapped in `++...++` or Markdown link syntax
 
-Short links resolve via the final redirect URL or the page's canonical permalink **before** constructing server URLs. Every advertised server is extracted, not just the pasted server. The bot processes the first supported link in each message, returning original labels, languages and embed links in plain-text messages split below Telegram's length limit.
+Short links resolve via the final redirect URL or the page's canonical permalink **before** constructing server URLs. Every advertised server is extracted, not just the pasted server. The bot processes the first supported link in each message and shows one inline button per provider (Dailymotion, Mega, etc.). Clicking a provider returns only its links, including all its available language variants, with original labels and explicit language names. Replies are plain text, split below Telegram's length limit. The website and extraction API still return all servers as before.
 
 ### Setup (automatic registration)
 
@@ -107,3 +107,11 @@ Set `PORT=8000`, expose HTTP port 8000 with route `/`, and choose TCP health che
 - `registered`, `last_update: none`: send `/start` in a private chat; ensure the public service is reachable and no other deployment is registering the same bot.
 - Update received but delivery failed: check logs/status, verify the bot is not blocked, and retry the message. Upstream extraction may take up to 55 seconds.
 - Changing tokens or migrating from older releases: redeploy; automatic registration replaces the old webhook and authentication header.
+
+### Telegram provider buttons
+
+The bot extracts the episode once and groups its results by provider. Selecting **Dailymotion**, for example, returns its English and Indonesian links (plus Multilingual when present), without Mega or other providers' links. Failed variants remain visible with an error instead of disappearing. The original menu stays usable for choosing another provider.
+
+Menus are scoped to their chat, expire after 15 minutes, and are kept in a bounded 64-menu in-memory cache. Restarts or cache eviction invalidate older buttons; the bot asks users to resend the episode URL. In a group, anyone in the same chat can use a menu. No persistent database or additional upstream requests are needed for button clicks.
+
+Redeploy this version to automatically register both `message` and `callback_query` updates with Telegram. No new environment variables are required.

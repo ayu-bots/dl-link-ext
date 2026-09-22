@@ -203,6 +203,7 @@ async def test_automatic_webhook_registration(monkeypatch):
     await setup.setup(instance)
     assert instance.state.telegram_status['status'] == 'registered'
     assert calls[0]['url'] == 'https://example.koyeb.app/telegram/webhook'
+    assert calls[0]['allowed_updates'] == ['message', 'callback_query']
     assert calls[0]['secret_token'] == webhook_secret('test-token')
     monkeypatch.delenv('PUBLIC_BASE_URL')
     await setup.setup(instance)
@@ -229,7 +230,7 @@ def test_webhook_sends_reply(monkeypatch, text):
     async def extract(url):
         assert url == 'https://animexin.dev/?p=30101'
         return {'title': 'Episode', 'warnings': [], 'servers': [
-            {'label': 'English Mega', 'languages':['English'], 'embed_urls':['https://mega.nz/embed/test']}
+            {'server': 'Mega', 'label': 'English Mega', 'languages':['English'], 'embed_urls':['https://mega.nz/embed/test']}
         ]}
     monkeypatch.setattr(bot.httpx, 'AsyncClient', Client)
     monkeypatch.setattr(main, 'extract', extract)
@@ -238,7 +239,73 @@ def test_webhook_sends_reply(monkeypatch, text):
                         headers={'X-Telegram-Bot-Api-Secret-Token': webhook_secret('test-token')})
         assert r.status_code == 200
         assert sent[0]['chat_id'] == 42
-        assert ('Send an Animexin' if text == '/start' else 'https://mega.nz/embed/test') in sent[0]['text']
+        assert ('Send an Animexin' if text == '/start' else 'Choose a server') in sent[0]['text']
+        if text != '/start':
+            assert sent[0]['reply_markup']['inline_keyboard'][0][0]['text'] == 'Mega'
+            assert 'https://mega.nz/embed/test' not in sent[0]['text']
         status = client.get('/api/telegram/status').json()
         assert status['last_update'] == 'received'
         assert 'test-token' not in str(status)
+
+
+@pytest.mark.parametrize('mode', ['valid', 'expired', 'wrong_chat', 'invalid'])
+def test_provider_button_callback(monkeypatch, mode):
+    import app.telegram as bot
+    from app.bot_config import webhook_secret
+    bot.menus.clear()
+    bot.seen.clear()
+    bot.active.clear()
+    monkeypatch.setenv('TELEGRAM_BOT_TOKEN', 'test-token')
+    monkeypatch.delenv('PUBLIC_BASE_URL', raising=False)
+    result = {'title': 'Episode', 'warnings': [], 'servers': [
+        {'server':'Dailymotion', 'label':'Eng Dailymotion', 'languages':['English'], 'embed_urls':['https://dm.test/eng']},
+        {'server':'Mega', 'label':'Eng Mega', 'languages':['English'], 'embed_urls':['https://mega.test/eng']},
+        {'server':'Dailymotion', 'label':'Indo Dailymotion', 'languages':['Indonesian'], 'embed_urls':['https://dm.test/indo']},
+        {'server':'Dailymotion', 'label':'All Sub Dailymotion', 'languages':['Multilingual'], 'embed_urls':[], 'error':'Unavailable'},
+    ]}
+    markup = bot.server_menu(result, 42)
+    buttons = [b for row in markup['inline_keyboard'] for b in row]
+    assert [b['text'] for b in buttons] == ['Dailymotion', 'Mega']
+    assert all(len(b['callback_data'].encode()) <= 64 for b in buttons)
+    data = buttons[0]['callback_data']
+    if mode == 'expired':
+        next(iter(bot.menus.values()))['created'] -= bot.MENU_TTL
+    if mode == 'invalid':
+        data = 'srv:bad:999'
+    calls = []
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, json):
+            calls.append((url.rsplit('/', 1)[-1], json))
+            return httpx.Response(200, json={'ok': True})
+    monkeypatch.setattr(bot.httpx, 'AsyncClient', Client)
+    with TestClient(app) as client:
+        update = {'update_id': 900, 'callback_query': {'id':'query-id', 'data':data,
+                  'message': {'chat': {'id': 99 if mode == 'wrong_chat' else 42}}}}
+        headers = {'X-Telegram-Bot-Api-Secret-Token': webhook_secret('test-token')}
+        assert client.post('/telegram/webhook', json=update, headers=headers).status_code == 200
+        assert calls[0][0] == 'answerCallbackQuery'
+        if mode == 'valid':
+            text = calls[1][1]['text']
+            assert 'https://dm.test/eng' in text and 'Language: English' in text
+            assert 'https://dm.test/indo' in text and 'Language: Indonesian' in text
+            assert 'Language: Multilingual' in text and 'Unavailable' in text
+            assert 'mega.test' not in text
+            assert len(bot.menus) == 1  # Other buttons remain usable.
+        else:
+            assert len(calls) == 1 and calls[0][1]['show_alert']
+        count = len(calls)
+        client.post('/telegram/webhook', json=update, headers=headers)
+        assert len(calls) == count  # Telegram redelivery is deduplicated.
+
+
+def test_menu_cache_bounded():
+    import app.telegram as bot
+    bot.menus.clear()
+    result = {'title':'Episode', 'servers':[{'server':'Mega'}]}
+    for _ in range(bot.MENU_LIMIT + 5):
+        bot.server_menu(result, 42)
+    assert len(bot.menus) == bot.MENU_LIMIT
+    bot.menus.clear()

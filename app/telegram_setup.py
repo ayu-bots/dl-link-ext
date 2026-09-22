@@ -37,7 +37,7 @@ async def setup(app):
             try:
                 response = await client.post(f'https://api.telegram.org/bot{token}/setWebhook', json={
                     'url': base + '/telegram/webhook', 'secret_token': webhook_secret(token),
-                    'allowed_updates': ['message'], 'max_connections': 2,
+                    'allowed_updates': ['message', 'callback_query'], 'max_connections': 2,
                 })
                 if response.is_success and response.json().get('ok'):
                     app.state.telegram_status = {'status': 'registered', 'detail': 'Telegram accepted the webhook. Send /start in a private chat to test delivery.'}
