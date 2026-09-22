@@ -147,3 +147,7 @@ Keep one worker, one instance, `PORT=8000`, and a TCP check on port 8000. No new
 ### Verification status
 
 Tests cover normalization, provider matching, ad rejection, browser network policy, and mocked server → Play → iframe interactions. **Live browser extraction is not yet verified**: this sandbox could not install Chromium's system libraries because its package-mirror connection failed. These are mocked interaction tests, not proof that Anime4i's current controls match the implemented selectors. Test the supplied episode after Docker redeployment; failed selectors return a per-server error instead of an unrelated embed.
+
+### Docker base compatibility
+
+The Dockerfile pins `python:3.12-slim-bookworm` (Debian 12), supported by Playwright 1.51. Do not replace it with floating `python:3.12-slim`: that tag can move to Debian Trixie, causing Playwright to fall back to Ubuntu dependencies and fail with missing `ttf-unifont` / `ttf-ubuntu-font-family` packages. Redeploy the latest commit to apply the fix.
