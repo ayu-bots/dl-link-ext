@@ -136,7 +136,7 @@ Accepts episode URLs such as `https://anime4i.com/martial-master-episode-694-eng
 
 The adapter opens a fresh browser context for each Dailymotion/Okru server, clicks its server button, clicks an explicit Play/Play video control if necessary, and reads the resulting iframe. It tries the supplied player XPath first, then scoped player/article iframe selectors. Only provider-specific Dailymotion and Ok.ru embed URLs qualify, so a `t.co` ad iframe or a stale iframe from the other provider is never returned. English is recorded when the episode title explicitly says English; the provider name alone does not imply a language.
 
-External network requests, external redirects, images, fonts, video media, service workers and third-party scripts are blocked. Popups are closed. Only HTTPS requests on the Anime4i host allowlist are permitted. This intentionally strict policy may break a player if the site starts requiring external scripts; such a server is reported unavailable rather than opening ad destinations. The extractor reads iframe attributes without loading or playing the third-party video.
+External network requests, external redirects, images, fonts, video media, service workers and third-party scripts are blocked. Popups are closed. HTTPS requests on the Anime4i host allowlist are permitted, plus narrowly matched jQuery library script URLs on code.jquery.com, ajax.googleapis.com and cdnjs.cloudflare.com. External page navigation remains blocked. This intentionally strict policy may break a player if the site starts requiring external scripts; such a server is reported unavailable rather than opening ad destinations. The extractor reads iframe attributes without loading or playing the third-party video.
 
 ### Deployment change for Anime4i
 
@@ -151,3 +151,7 @@ Tests cover normalization, provider matching, ad rejection, browser network poli
 ### Docker base compatibility
 
 The Dockerfile pins `python:3.12-slim-bookworm` (Debian 12), supported by Playwright 1.51. Do not replace it with floating `python:3.12-slim`: that tag can move to Debian Trixie, causing Playwright to fall back to Ubuntu dependencies and fail with missing `ttf-unifont` / `ttf-ubuntu-font-family` packages. Redeploy the latest commit to apply the fix.
+
+### Anime4i player detection diagnostics
+
+The player reader also checks lazy iframe attributes and provider-validated iframe URLs outside the original XPath. Explicit image/poster Play controls are supported. Attempted matching iframe requests are captured before the external player request is blocked; popup and top-level navigation requests do not qualify. Failure replies include iframe and blocked-script-host counts, and logs list blocked script hostnames (not URL query strings). This helps distinguish changed DOM controls from missing JavaScript dependencies without disabling ad/redirect protection. These changes are regression-tested with mocks; live Anime4i extraction still requires deployment verification.
