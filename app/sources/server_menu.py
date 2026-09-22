@@ -19,12 +19,19 @@ def normalize(url: str, hosts: set[str], domain: str) -> str:
     return urlunsplit(('https', domain, path.rstrip('/') + '/', '', ''))
 
 
+# Known non-player redirect hosts reported inside the player container.
+BLOCKED_EMBED_HOSTS = {'t.co'}
+
+
 def web_url(value: str, base: str) -> str | None:
     value = value.strip()
     if not value or value.startswith(('javascript:', 'data:', 'about:')):
         return None
     url = urljoin(base, value)
     p = urlsplit(url)
+    host = (p.hostname or '').lower().rstrip('.')
+    if any(host == blocked or host.endswith('.' + blocked) for blocked in BLOCKED_EMBED_HOSTS):
+        return None
     return url if p.scheme in ('https', 'http') and p.hostname and not p.username and not p.password else None
 
 
